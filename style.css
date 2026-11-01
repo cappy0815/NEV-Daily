@@ -1,0 +1,155 @@
+/* NEV Daily – Farben angelehnt an neusserev.de (Rot #e7042a, Schwarz/Anthrazit, Weiß, Gold-Akzent) */
+:root {
+  --bg: #0d0d0d;
+  --surface: #181818;
+  --surface-2: #232323;
+  --line: #2e2e2e;
+  --red: #e7042a;
+  --red-dark: #9b0d16;
+  --gold: #d4a017;
+  --text: #ffffff;
+  --muted: #9a9a9a;
+  --ok: #2fbf71;
+  --radius: 14px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 16px; line-height: 1.35;
+  min-height: 100vh; padding-bottom: calc(16px + var(--safe-bottom));
+}
+button { font: inherit; color: inherit; }
+.muted { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ---------- Header ---------- */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 55%, var(--red-dark) 130%);
+  border-bottom: 3px solid var(--red);
+}
+.logo { width: 52px; height: auto; flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+.brand { flex: 1; min-width: 0; }
+.title { font-weight: 900; font-size: 1.45rem; letter-spacing: .02em; text-transform: uppercase; font-style: italic; }
+.title span { color: var(--red); }
+.clock { color: #cfcfcf; font-size: .85rem; margin-top: 1px; }
+.icon-btn {
+  width: 42px; height: 42px; border-radius: 50%; border: 1px solid #3a3a3a;
+  background: rgba(255,255,255,.04); display: grid; place-items: center; cursor: pointer;
+}
+.icon-btn.spin svg { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Tabs ---------- */
+.tabs { display: flex; gap: 6px; padding: 12px 16px 0; max-width: 640px; margin: 0 auto; }
+.tab {
+  flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted); font-weight: 700; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .04em; font-size: .85rem;
+}
+.tab.active { background: var(--red); border-color: var(--red); color: #fff; }
+
+main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+.view { display: none; }
+.view.active { display: block; }
+
+/* ---------- Jetzt-Karte ---------- */
+.now-card {
+  margin-top: 14px; border-radius: var(--radius); padding: 14px 16px 16px;
+  background: linear-gradient(160deg, #1f1f1f 0%, #151515 100%);
+  border: 1px solid var(--line); border-left: 5px solid var(--red);
+}
+.now-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gold);
+}
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: pulse 1.6s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.now-body { margin-top: 8px; }
+.now-team { font-size: 1.6rem; font-weight: 900; line-height: 1.15; }
+.now-team + .now-team { margin-top: 2px; }
+.now-meta { color: #d6d6d6; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.bar { height: 6px; border-radius: 3px; background: #333; margin-top: 10px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--red); }
+.now-free { font-size: 1.5rem; font-weight: 900; color: var(--ok); }
+.now-sub { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: .92rem; }
+.now-sub b { color: #fff; }
+.now-sub .row + .row { margin-top: 4px; }
+.now-sub .k { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; display: block; margin-bottom: 2px; }
+
+/* ---------- Datums-Leiste ---------- */
+.daybar { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; }
+.nav-btn {
+  width: 44px; height: 40px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); font-size: 1.5rem; line-height: 1; cursor: pointer;
+}
+.day-title {
+  flex: 1; height: 40px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 800; cursor: pointer;
+}
+.filter { margin: 0 0 8px; font-size: .88rem; color: var(--muted); }
+.chk { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.chk input { accent-color: var(--red); width: 18px; height: 18px; }
+
+/* ---------- Timeline (Tag) ---------- */
+.timeline { list-style: none; margin: 0; padding: 0; }
+.slot {
+  display: grid; grid-template-columns: 62px 1fr; gap: 10px;
+  padding: 11px 12px; margin-bottom: 8px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #444;
+}
+.slot.ice { border-left-color: var(--red); }
+.slot.office { border-left-color: var(--gold); }
+.slot.game { border-left-color: #fff; }
+.slot.ext { border-left-color: #555; }
+.slot.past { opacity: .42; }
+.slot.live { background: #2a1013; border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+.t { font-variant-numeric: tabular-nums; font-weight: 800; font-size: .95rem; line-height: 1.2; }
+.t small { display: block; color: var(--muted); font-weight: 600; font-size: .8rem; }
+.who { font-weight: 800; }
+.who small { font-weight: 600; color: var(--muted); }
+.where { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .85rem; color: #cfcfcf; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 800;
+  letter-spacing: .04em; text-transform: uppercase; background: #333; color: #fff;
+}
+.badge.ice { background: var(--red); }
+.badge.office { background: var(--gold); color: #111; }
+.badge.home { background: #fff; color: #111; }
+.badge.away { background: #444; }
+.badge.ext { background: #3a3a3a; color: #ddd; }
+.badge.live { background: var(--ok); color: #062; }
+.empty { padding: 26px 12px; text-align: center; color: var(--muted); background: var(--surface); border-radius: 12px; border: 1px dashed var(--line); }
+.err { padding: 12px 14px; border-radius: 12px; background: #3a0d12; border: 1px solid var(--red-dark); color: #ffd7dc; margin-top: 12px; font-size: .9rem; }
+
+/* ---------- Woche (Mannschaft) ---------- */
+.select-wrap { display: block; margin-top: 14px; }
+select {
+  width: 100%; height: 48px; padding: 0 14px; border-radius: 12px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--red);
+  font: inherit; font-weight: 700; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
+  background-position: calc(100% - 20px) 21px, calc(100% - 14px) 21px; background-size: 6px 6px; background-repeat: no-repeat;
+}
+.wday {
+  display: grid; grid-template-columns: 54px 1fr; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.wday.today { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+.wday.off { opacity: .45; }
+.wd { font-weight: 900; text-transform: uppercase; }
+.wd small { display: block; color: var(--muted); font-weight: 600; font-size: .8rem; }
+.wentry + .wentry { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.wentry .t { display: inline; font-size: .95rem; }
+.wnone { color: var(--muted); align-self: center; }
+
+/* ---------- Footer ---------- */
+.foot { max-width: 640px; margin: 18px auto 0; padding: 0 16px; color: var(--muted); font-size: .78rem; text-align: center; }
+.foot .legend { margin-top: 4px; }
