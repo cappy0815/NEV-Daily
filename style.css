@@ -27,8 +27,8 @@ button { font: inherit; color: inherit; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ---------- Header ---------- */
+.sticky { position: sticky; top: 0; z-index: 10; background: var(--bg); box-shadow: 0 6px 12px -6px rgba(0,0,0,.8); }
 .top {
-  position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 12px;
   padding: calc(10px + var(--safe-top)) 16px 10px;
   background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 55%, var(--red-dark) 130%);
@@ -47,7 +47,7 @@ button { font: inherit; color: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- Tabs ---------- */
-.tabs { display: flex; gap: 6px; padding: 12px 16px 0; max-width: 640px; margin: 0 auto; }
+.tabs { display: flex; gap: 6px; padding: 10px 16px; max-width: 640px; margin: 0 auto; }
 .tab {
   flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface); color: var(--muted); font-weight: 700; cursor: pointer;

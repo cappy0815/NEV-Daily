@@ -495,10 +495,9 @@ function renderDay() {
     const past = (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
     const cls = ['slot', s.type, live ? 'live' : '', past && !live ? 'past' : ''].join(' ');
     if (s.kind === 'city') {
-      const notes = (s.refs || []).map(n => state.city.notes[n]).filter(Boolean);
       return `<li class="${cls} city-${s.cityKind}">${timeHtml(s)}<div>
         <div class="who">${esc(s.label)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
-        <div class="where"><span class="badge city">Stadt-Plan</span>${notes.map(n => `<span class="muted">${esc(n)}</span>`).join('')}</div></div></li>`;
+        <div class="where"><span class="badge city">Stadt-Plan</span></div></div></li>`;
     }
     return `<li class="${cls}">${timeHtml(s)}<div>
       <div class="who">${teamsHtml(s.teams)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
@@ -625,8 +624,9 @@ $('#weekPrev').addEventListener('click', () => { state.weekOffset--; ensureVisib
 $('#weekNext').addEventListener('click', () => { state.weekOffset++; ensureVisible(); });
 $('#weekTitle').addEventListener('click', () => { state.weekOffset = 0; ensureVisible(); });
 $('#onlyHall').addEventListener('change', renderDay);
-$('#showCity').checked = safeGet('nevDaily.showCity') !== '0';
-$('#showCity').addEventListener('change', e => { safeSet('nevDaily.showCity', e.target.checked ? '1' : '0'); renderDay(); });
+// Standard: aus. Neuer Schlüssel, damit ein alter gespeicherter Wert nicht greift.
+$('#showCity').checked = safeGet('nevDaily.showCity.v2') === '1';
+$('#showCity').addEventListener('change', e => { safeSet('nevDaily.showCity.v2', e.target.checked ? '1' : '0'); renderDay(); });
 $('#teamSelect').addEventListener('change', e => { state.team = e.target.value; safeSet(CONFIG.TEAM_KEY, state.team); renderWeek(); });
 $('#refreshBtn').addEventListener('click', () => refresh(true));
 document.addEventListener('visibilitychange', () => {
