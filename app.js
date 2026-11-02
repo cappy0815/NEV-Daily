@@ -439,7 +439,16 @@ function renderNow() {
       for (const b of city) {
         const pct = Math.min(100, Math.max(0, (now - b.start) / (b.end - b.start) * 100));
         const title = b.kind === 'nev' ? 'NEV-Vereinszeit' : esc(cityTitle(b));
-        const hint = b.kind === 'nev' ? '<span>im Trainingsplan nicht eingetragen</span>' : '';
+        // NEV-Block im Stadt-Plan: Trainingsplan entscheidet, wer ihn nutzt.
+        // Beginnt darin gleich eine NEV-Eiszeit (z. B. Wechsel 19:15 -> 19:20), das sagen –
+        // nur wenn im ganzen Block nichts eingetragen ist, gilt er als ungenutzt.
+        let hint = '';
+        if (b.kind === 'nev') {
+          const soon = groupSlots(list.filter(e => onIce(e) && e.start > now && e.start < b.end))[0];
+          hint = soon
+            ? `<span>ab ${fmtMin(soon.start)}: ${teamsHtml(soon.teams)}</span>`
+            : '<span>im Trainingsplan nicht belegt</span>';
+        }
         html += `<div class="now-team city-${b.kind}">${title}</div>
           <div class="now-meta"><span>${fmtMin(b.start)} – ${fmtMin(b.end)}</span>${hint}</div>
           <div class="bar city"><i style="width:${pct}%"></i></div>`;
