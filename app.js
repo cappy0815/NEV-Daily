@@ -23,7 +23,11 @@ const CONFIG = {
   GAME_DURATION_MIN: 150,
   REFRESH_MS: 5 * 60 * 1000,   // Daten neu laden
   TICK_MS: 30 * 1000,          // "Jetzt"-Anzeige aktualisieren
-  CACHE_KEY: 'nevDaily.cache.v1',
+  // Tabellenblatt mit dem Wochen-Belegungsplan der Stadt (Viertelstunden-Raster,
+  // verbundene Zellen = Belegungsblock). Wird per htmlview geladen, weil nur
+  // dort die verbundenen Zellen (colspan/rowspan) mitgeliefert werden.
+  CITY_GID: '1732916025',
+  CACHE_KEY: 'nevDaily.cache.v2',
   TEAM_KEY: 'nevDaily.team',
 };
 
@@ -34,6 +38,7 @@ const WD_LONG = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag'
 /* ---------------- Zustand ---------------- */
 const state = {
   months: new Map(),      // "2026-10" (Monat 0-basiert) -> {status, stand, teams, entries}
+  city: null,             // Belegungsplan Stadt: {status, blocks:[{wd,start,end,label,kind,notes}], notes}
   dayOffset: 0,           // Tag-Ansicht: 0 = heute
   weekOffset: 0,          // Wochen-Ansicht: 0 = aktuelle Woche
   team: safeGet(CONFIG.TEAM_KEY) || '',
@@ -213,16 +218,135 @@ async function ensureMonths(dates, force = false) {
   saveCache();
 }
 
+/* ---------------- Belegungsplan Stadt ----------------
+   Aufbau: Zeile "Zeit" = Stunden (je 4 Spalten verbunden), Zeile "Tag" =
+   Minuten 0/15/30/45. Pro Wochentag ein Zeilenband (Spalte A, verbunden,
+   "Montag\n2,0 Std"), darin verbundene Zellen als Belegungsblöcke, z. B.
+   "NSK\n(1,3)", "Öffentl.\nOldie-Disco", "Schule". Ziffern in Klammern
+   verweisen auf die Fußnoten unter der Tabelle ("1  An Feiertagen …"). */
+const WD_PREFIX = { mo: 1, di: 2, mi: 3, do: 4, fr: 5, sa: 6, so: 0 };
+
+function cityKind(label) {
+  if (/\bNEV\b/i.test(label)) return 'nev';
+  if (/\bNSK\b/i.test(label)) return 'nsk';
+  if (/öffent/i.test(label)) return 'public';
+  if (/schul|kinder/i.test(label)) return 'school';
+  return 'other';
+}
+
+function parseCityHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const table = doc.querySelector('table');
+  if (!table) throw new Error('Belegungsplan Stadt: keine Tabelle gefunden');
+
+  // Raster mit colspan/rowspan aufbauen; Zeilenköpfe (<th>) ignorieren
+  const grid = [];           // grid[r][c] = {text, cs, rs, r0, c0}
+  let r = 0;
+  for (const tr of table.querySelectorAll('tr')) {
+    const tds = [...tr.children].filter(el => el.tagName === 'TD');
+    if (!tds.length) continue;
+    grid[r] = grid[r] || [];
+    let c = 0;
+    for (const td of tds) {
+      while (grid[r][c]) c++;
+      const cs = +td.getAttribute('colspan') || 1, rs = +td.getAttribute('rowspan') || 1;
+      const text = (td.textContent || '').replace(/ /g, ' ').trim();
+      const cell = { text, cs, rs, r0: r, c0: c };
+      for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) {
+        grid[r + i] = grid[r + i] || [];
+        grid[r + i][c + j] = cell;
+      }
+      c += cs;
+    }
+    r++;
+  }
+  const textOf = cell => cell ? cell.text : '';
+
+  const hourRow = grid.findIndex(row => row && /^zeit$/i.test(textOf(row[0])));
+  const minRow = grid.findIndex(row => row && /^tag$/i.test(textOf(row[0])));
+  if (hourRow < 0 || minRow < 0) throw new Error('Belegungsplan Stadt: Zeitleiste nicht gefunden');
+  const nCols = Math.max(...grid.map(row => row ? row.length : 0));
+  const colMin = [];
+  for (let c = 1; c < nCols; c++) {
+    const h = parseInt(textOf(grid[hourRow][c]), 10), m = parseInt(textOf(grid[minRow][c]), 10);
+    colMin[c] = Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+  }
+  const lastCol = colMin.reduce((a, v, i) => (v != null ? i : a), 1);
+  const timeAt = c => (c <= lastCol ? colMin[c] : colMin[lastCol] + (c - lastCol) * 15);
+
+  const blocks = [], seen = new Set(), notes = {};
+  for (let r = minRow + 1; r < grid.length; r++) {
+    const row = grid[r]; if (!row) continue;
+    const head = row[0];
+    const wd = head ? WD_PREFIX[textOf(head).slice(0, 2).toLowerCase()] : undefined;
+    if (wd === undefined) {
+      // Fußnoten: Zelle mit einzelner Ziffer, rechts daneben der Text
+      for (let c = 1; c < row.length; c++) {
+        const cell = row[c]; if (!cell || cell.c0 !== c || cell.r0 !== r) continue;
+        if (/^\d$/.test(cell.text)) {
+          const nxt = row[c + cell.cs];
+          if (nxt && nxt.text) notes[cell.text] = nxt.text.replace(/\s+/g, ' ');
+        }
+      }
+      continue;
+    }
+    for (let c = 1; c < row.length; c++) {
+      const cell = row[c];
+      if (!cell || !cell.text || cell.c0 !== c || seen.has(cell)) continue;
+      seen.add(cell);
+      const start = timeAt(c), end = timeAt(c + cell.cs);
+      if (start == null || end == null) continue;
+      const refs = (cell.text.match(/\(([\d,\s]+)\)/) || [])[1];
+      const label = cell.text.replace(/\(([\d,\s]+)\)/, '').replace(/(\p{Ll})-\s*\n\s*(\p{Ll})/gu, '$1$2').replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
+      blocks.push({ wd, start, end, label, kind: cityKind(label), refs: refs ? refs.split(/[,\s]+/).filter(Boolean) : [] });
+    }
+  }
+  if (!blocks.length) throw new Error('Belegungsplan Stadt: keine Belegungen erkannt');
+  blocks.sort((a, b) => a.wd - b.wd || a.start - b.start);
+  return { status: 'ok', blocks, notes };
+}
+
+async function loadCity(force = false) {
+  if (!force && state.city && state.city.status === 'ok' && !state.city.fromCache) return;
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/htmlview/sheet?headers=false&gid=${CONFIG.CITY_GID}&_=${Date.now()}`;
+    let html = await fetchText(url);
+    html = html.replace(/<br\s*\/?>/gi, '\n');
+    state.city = parseCityHtml(html);
+  } catch (err) {
+    console.error(err);
+    if (!state.city) state.city = { status: 'error', blocks: [], notes: {} };
+  }
+}
+
+const CITY_NAMES = { nsk: 'NSK (Kunstlauf)', public: 'Öffentlicher Lauf', school: 'Schule / Kindergarten', nev: 'NEV-Vereinszeit', other: '' };
+function cityTitle(b) {
+  if (b.kind === 'public') {
+    const rest = b.label.replace(/öffent\w*\.?/i, '').trim();
+    return rest ? `Öffentlicher Lauf · ${rest}` : 'Öffentlicher Lauf';
+  }
+  if (b.kind === 'nsk') {
+    const rest = b.label.replace(/\bNSK\b/i, '').trim();
+    return rest ? `NSK ${rest}` : 'NSK (Kunstlauf)';
+  }
+  return b.label;
+}
+function cityBlocksOn(d) {
+  return state.city && state.city.status === 'ok' ? state.city.blocks.filter(b => b.wd === d.getDay()) : [];
+}
+
 function saveCache() {
   const obj = {};
   for (const [k, v] of state.months) if (v.status === 'ok') obj[k] = v;
-  safeSet(CONFIG.CACHE_KEY, JSON.stringify({ t: Date.now(), months: obj }));
+  const city = state.city && state.city.status === 'ok' ? state.city : null;
+  safeSet(CONFIG.CACHE_KEY, JSON.stringify({ t: Date.now(), months: obj, city }));
 }
 function loadCache() {
   try {
     const c = JSON.parse(safeGet(CONFIG.CACHE_KEY) || 'null');
     if (!c) return;
     for (const [k, v] of Object.entries(c.months)) state.months.set(k, { ...v, fromCache: true });
+    if (c.city) state.city = { ...c.city, fromCache: true };
     state.lastLoad = new Date(c.t);
   } catch { /* Cache defekt -> ignorieren */ }
 }
@@ -304,12 +428,30 @@ function renderNow() {
         <div class="bar"><i style="width:${pct}%"></i></div>`;
     }
   } else {
-    html += `<div class="now-free">Eis frei</div>`;
+    // Kein NEV laut Trainingsplan -> Belegungsplan der Stadt fragen
+    const city = cityBlocksOn(today).filter(b => b.start <= now && now < b.end);
+    if (!state.city || state.city.status !== 'ok') {
+      html += `<div class="now-free">Kein NEV-Training</div><div class="now-meta muted">Belegungsplan Stadt konnte nicht geladen werden.</div>`;
+    } else if (city.length) {
+      for (const b of city) {
+        const pct = Math.min(100, Math.max(0, (now - b.start) / (b.end - b.start) * 100));
+        const title = b.kind === 'nev' ? 'NEV-Vereinszeit' : esc(cityTitle(b));
+        const hint = b.kind === 'nev' ? '<span>im Trainingsplan nicht eingetragen</span>' : '';
+        html += `<div class="now-team city-${b.kind}">${title}</div>
+          <div class="now-meta"><span>${fmtMin(b.start)} – ${fmtMin(b.end)}</span>${hint}</div>
+          <div class="bar city"><i style="width:${pct}%"></i></div>`;
+      }
+      html += `<div class="now-src">laut Belegungsplan Stadt (Wochenplan)</div>`;
+    } else {
+      const next = cityBlocksOn(today).find(b => b.start > now);
+      html += `<div class="now-free">Keine Belegung</div>
+        <div class="now-meta muted">${next ? `ab ${fmtMin(next.start)}: ${esc(next.kind === 'nev' ? 'NEV' : cityTitle(next))}` : 'laut Belegungsplan Stadt heute nichts mehr'}</div>`;
+    }
   }
   const sub = [];
   if (offNow.length) sub.push(`<div class="row"><span class="k">Off-Ice jetzt</span>${offNow.map(s => `<b>${teamsHtml(s.teams)}</b> · ${esc(s.place)} bis ${fmtMin(s.end)}`).join('<br>')}</div>`);
-  if (nextIce) sub.push(`<div class="row"><span class="k">Als Nächstes auf dem Eis</span><b>${fmtMin(nextIce.start)}</b> · ${teamsHtml(nextIce.teams)}${nextIce.kind === 'home' ? ' (Heimspiel)' : ''}</div>`);
-  else sub.push(`<div class="row muted">Heute keine weitere Eiszeit.</div>`);
+  if (nextIce) sub.push(`<div class="row"><span class="k">Nächste NEV-Eiszeit</span><b>${fmtMin(nextIce.start)}</b> · ${teamsHtml(nextIce.teams)}${nextIce.kind === 'home' ? ' (Heimspiel)' : ''}</div>`);
+  else sub.push(`<div class="row muted">Heute keine weitere NEV-Eiszeit.</div>`);
   html += `<div class="now-sub">${sub.join('')}</div>`;
   body.innerHTML = html;
 }
@@ -336,6 +478,15 @@ function renderDay() {
   let list = entriesOn(d);
   if (onlyHall) list = list.filter(inHall);
   const slots = groupSlots(list);
+  // Fremdbelegung (NSK, öffentlicher Lauf, Schule) aus dem Belegungsplan Stadt.
+  // NEV-Blöcke daraus werden nicht gezeigt – maßgeblich ist der Trainingsplan.
+  if ($('#showCity').checked) {
+    for (const b of cityBlocksOn(d)) {
+      if (b.kind === 'nev') continue;
+      slots.push({ kind: 'city', type: 'city', cityKind: b.kind, start: b.start, end: b.end, label: cityTitle(b), refs: b.refs, teams: [] });
+    }
+    slots.sort((a, b) => (a.start ?? 9999) - (b.start ?? 9999) || (a.end ?? 0) - (b.end ?? 0));
+  }
   if (!slots.length) { ul.innerHTML = `<li class="empty">${onlyHall ? 'Keine Belegung der Halle.' : 'Keine Termine.'}</li>`; return; }
 
   const isToday = state.dayOffset === 0, now = nowMinutes();
@@ -343,6 +494,12 @@ function renderDay() {
     const live = isToday && s.start != null && s.start <= now && now < s.end;
     const past = (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
     const cls = ['slot', s.type, live ? 'live' : '', past && !live ? 'past' : ''].join(' ');
+    if (s.kind === 'city') {
+      const notes = (s.refs || []).map(n => state.city.notes[n]).filter(Boolean);
+      return `<li class="${cls} city-${s.cityKind}">${timeHtml(s)}<div>
+        <div class="who">${esc(s.label)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
+        <div class="where"><span class="badge city">Stadt-Plan</span>${notes.map(n => `<span class="muted">${esc(n)}</span>`).join('')}</div></div></li>`;
+    }
     return `<li class="${cls}">${timeHtml(s)}<div>
       <div class="who">${teamsHtml(s.teams)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
       <div class="where">${placeBadges(s)}</div></div></li>`;
@@ -436,7 +593,8 @@ async function refresh(force = true) {
   const today = startOfDay(new Date());
   const dates = [today, addDays(today, state.dayOffset), ...weekDays()];
   try {
-    await ensureMonths(dates, force);
+    await Promise.all([ensureMonths(dates, force), loadCity(force)]);
+    saveCache();
     state.lastLoad = new Date();
   } finally {
     state.loading = false;
@@ -467,6 +625,8 @@ $('#weekPrev').addEventListener('click', () => { state.weekOffset--; ensureVisib
 $('#weekNext').addEventListener('click', () => { state.weekOffset++; ensureVisible(); });
 $('#weekTitle').addEventListener('click', () => { state.weekOffset = 0; ensureVisible(); });
 $('#onlyHall').addEventListener('change', renderDay);
+$('#showCity').checked = safeGet('nevDaily.showCity') !== '0';
+$('#showCity').addEventListener('change', e => { safeSet('nevDaily.showCity', e.target.checked ? '1' : '0'); renderDay(); });
 $('#teamSelect').addEventListener('change', e => { state.team = e.target.value; safeSet(CONFIG.TEAM_KEY, state.team); renderWeek(); });
 $('#refreshBtn').addEventListener('click', () => refresh(true));
 document.addEventListener('visibilitychange', () => {

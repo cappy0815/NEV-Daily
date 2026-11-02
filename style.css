@@ -93,7 +93,21 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
   flex: 1; height: 40px; border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface); font-weight: 800; cursor: pointer;
 }
-.filter { margin: 0 0 8px; font-size: .88rem; color: var(--muted); }
+.filter { margin: 0 0 8px; font-size: .88rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- Fremdbelegung (Belegungsplan Stadt) ---------- */
+:root { --nsk: #4aa3df; --public: #2fbf71; --school: #b48cff; }
+.slot.city { border-left-color: #666; background: #141414; border-style: dashed; border-left-style: solid; }
+.slot.city .who { font-weight: 700; color: #e6e6e6; }
+.slot.city-nsk { border-left-color: var(--nsk); }
+.slot.city-public { border-left-color: var(--public); }
+.slot.city-school { border-left-color: var(--school); }
+.badge.city { background: #2b2b2b; color: #bbb; }
+.now-team.city-nsk { color: var(--nsk); }
+.now-team.city-public { color: var(--public); }
+.now-team.city-school { color: var(--school); }
+.bar.city > i { background: #8a8a8a; }
+.now-src { margin-top: 8px; font-size: .78rem; color: var(--muted); }
 .chk { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .chk input { accent-color: var(--red); width: 18px; height: 18px; }
 

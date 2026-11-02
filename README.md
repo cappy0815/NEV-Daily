@@ -35,6 +35,10 @@ Spiele haben im Plan nur eine Anfangszeit. Für die Anzeige „Halle belegt“ w
 ## Veröffentlichen (GitHub Pages)
 
 Settings → Pages → Source „Deploy from a branch“ → Branch `main`, Ordner `/ (root)`.
-Danach erreichbar unter `https://cappy0815.github.io/nev-daily/`.
+Erreichbar unter https://cappy0815.github.io/NEV-Daily/ – andere Schreibweisen (z. B. `/nev-daily`) leitet die `404.html` im Repo `cappy0815.github.io` weiter.
+
+## Belegungsplan Stadt
+
+Steht laut Trainingsplan kein NEV-Team auf dem Eis, zeigt die Seite die Belegung aus dem Blatt „Belegungsplan Stadt“ (NSK, öffentlicher Lauf, Schule/Kindergarten). Das Blatt ist ein Wochenplan im Viertelstunden-Raster; verbundene Zellen sind die Belegungsblöcke, Ziffern in Klammern verweisen auf die Fußnoten darunter. Es wird über `htmlview` geladen, weil nur dort die verbundenen Zellen enthalten sind. NEV-Blöcke aus diesem Plan zählen nur, wenn im Trainingsplan zur selben Zeit nichts steht.
 
 Logo und Farben: Neusser EV (neusserev.de).
