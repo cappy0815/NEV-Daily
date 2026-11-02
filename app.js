@@ -626,7 +626,9 @@ $('#dayTitle').addEventListener('click', () => { state.dayOffset = 0; ensureVisi
 $('#weekPrev').addEventListener('click', () => { state.weekOffset--; ensureVisible(); });
 $('#weekNext').addEventListener('click', () => { state.weekOffset++; ensureVisible(); });
 $('#weekTitle').addEventListener('click', () => { state.weekOffset = 0; ensureVisible(); });
-$('#onlyHall').addEventListener('change', renderDay);
+// Standard: aus (alle Termine inkl. Auswärtsspiele). Auswahl wird gemerkt.
+$('#onlyHall').checked = safeGet('nevDaily.onlyHall') === '1';
+$('#onlyHall').addEventListener('change', e => { safeSet('nevDaily.onlyHall', e.target.checked ? '1' : '0'); renderDay(); });
 // Standard: aus. Neuer Schlüssel, damit ein alter gespeicherter Wert nicht greift.
 $('#showCity').checked = safeGet('nevDaily.showCity.v2') === '1';
 $('#showCity').addEventListener('change', e => { safeSet('nevDaily.showCity.v2', e.target.checked ? '1' : '0'); renderDay(); });
