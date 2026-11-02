@@ -21,8 +21,8 @@ const CONFIG = {
   // ANNAHME: Im Sheet steht nur die Anfangszeit eines Spiels.
   // Für "Halle belegt" wird diese Dauer angesetzt (Minuten).
   GAME_DURATION_MIN: 150,
-  // Lücke zwischen zwei Belegungen bis zu dieser Länge = Eisaufbereitung (meist 15 min)
-  MAX_GAP_MIN: 30,
+  // Eisaufbereitung: die ersten Minuten nach jeder Eisnutzung (fast immer 15)
+  ZAMBONI_MIN: 15,
   REFRESH_MS: 5 * 60 * 1000,   // Daten neu laden
   TICK_MS: 30 * 1000,          // "Jetzt"-Anzeige aktualisieren
   // Tabellenblatt mit dem Wochen-Belegungsplan der Stadt (Viertelstunden-Raster,
@@ -442,7 +442,7 @@ function renderNow() {
   } else {
     // Kein NEV laut Trainingsplan -> Belegungsplan der Stadt fragen.
     // Reihenfolge: 1. Fremdbelegung laut Stadt (NSK, öffentlich, Schule)
-    //              2. Übergang zwischen zwei Belegungen (<= MAX_GAP) = Eisaufbereitung
+    //              2. die ersten ZAMBONI_MIN Minuten nach einer Eisnutzung = Eisaufbereitung
     //              3. NEV-Block laut Stadt, der im Trainingsplan (noch) nicht belegt ist
     //              4. Keine Belegung
     const cityAll = cityBlocksOn(today);
@@ -455,7 +455,10 @@ function renderNow() {
     ];
     const prevUse = uses.filter(u => u.end <= now).sort((a, b) => b.end - a.end)[0];
     const nextUse = uses.filter(u => u.start > now).sort((a, b) => a.start - b.start)[0];
-    const gapOk = prevUse && nextUse && nextUse.start - prevUse.end <= CONFIG.MAX_GAP_MIN;
+    // Eisaufbereitung = erste ZAMBONI_MIN Minuten nach Ende einer Eisnutzung
+    // (kürzer, wenn die nächste Nutzung früher beginnt)
+    const zEnd = prevUse ? Math.min(prevUse.end + CONFIG.ZAMBONI_MIN, nextUse ? nextUse.start : Infinity) : 0;
+    const gapOk = prevUse && now < zEnd;
 
     if (!state.city || state.city.status !== 'ok') {
       html += `<div class="now-free">Kein NEV-Training</div><div class="now-meta muted">Belegungsplan Stadt konnte nicht geladen werden.</div>`;
@@ -468,9 +471,10 @@ function renderNow() {
       }
       html += `<div class="now-src">laut Belegungsplan Stadt (Wochenplan)</div>`;
     } else if (gapOk) {
-      const pct = Math.min(100, Math.max(0, (now - prevUse.end) / (nextUse.start - prevUse.end) * 100));
+      const pct = Math.min(100, Math.max(0, (now - prevUse.end) / (zEnd - prevUse.end) * 100));
+      const after = nextUse ? `<span>danach: ${nextUse.start > zEnd ? 'ab ' + fmtMin(nextUse.start) + ' ' : ''}${nextUse.label}</span>` : '';
       html += `<div class="now-team zamboni">Eisaufbereitung</div>
-        <div class="now-meta"><span>${fmtMin(prevUse.end)} – ${fmtMin(nextUse.start)}</span><span>danach: ${nextUse.label}</span></div>
+        <div class="now-meta"><span>${fmtMin(prevUse.end)} – ${fmtMin(zEnd)}</span>${after}</div>
         <div class="bar zamboni"><i style="width:${pct}%"></i></div>`;
     } else {
       const nevBlock = cityAll.find(b => b.kind === 'nev' && b.start <= now && now < b.end);
