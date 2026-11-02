@@ -42,3 +42,8 @@ Erreichbar unter https://cappy0815.github.io/NEV-Daily/ – andere Schreibweisen
 Steht laut Trainingsplan kein NEV-Team auf dem Eis, zeigt die Seite die Belegung aus dem Blatt „Belegungsplan Stadt“ (NSK, öffentlicher Lauf, Schule/Kindergarten). Das Blatt ist ein Wochenplan im Viertelstunden-Raster; verbundene Zellen sind die Belegungsblöcke, Ziffern in Klammern verweisen auf die Fußnoten darunter. Es wird über `htmlview` geladen, weil nur dort die verbundenen Zellen enthalten sind. NEV-Blöcke aus diesem Plan zählen nur, wenn im Trainingsplan zur selben Zeit nichts steht.
 
 Logo und Farben: Neusser EV (neusserev.de).
+
+## Neue Version veröffentlichen
+
+GitHub Pages liefert alle Dateien mit `Cache-Control: max-age=600` aus; Handys nehmen `app.js` und `style.css` dann bis zu 10 Minuten aus dem Cache, auch beim Neuladen.
+Deshalb bei jeder Änderung in `index.html` die Versionsnummer erhöhen (drei Stellen: `style.css?v=…`, `app.js?v=…` und die Anzeige „Version …“ im Footer).
