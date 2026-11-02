@@ -21,6 +21,8 @@ const CONFIG = {
   // ANNAHME: Im Sheet steht nur die Anfangszeit eines Spiels.
   // Für "Halle belegt" wird diese Dauer angesetzt (Minuten).
   GAME_DURATION_MIN: 150,
+  // Lücke zwischen zwei Belegungen bis zu dieser Länge = Eisaufbereitung (meist 15 min)
+  MAX_GAP_MIN: 30,
   REFRESH_MS: 5 * 60 * 1000,   // Daten neu laden
   TICK_MS: 30 * 1000,          // "Jetzt"-Anzeige aktualisieren
   // Tabellenblatt mit dem Wochen-Belegungsplan der Stadt (Viertelstunden-Raster,
@@ -163,15 +165,22 @@ async function loadMonth(y, m) {
   const rows = parseCSV(dataTxt);
 
   // Wichtig: Existiert das Blatt nicht, liefert Google stillschweigend das
-  // erste Blatt. Deshalb Titel und Wochentag des 1. prüfen.
-  const titleMatch = metaText.match(/Trainingsplan\s+(\S+)\s+(\d{4})/i);
-  if (titleMatch && (titleMatch[1] !== MONTHS[m] || +titleMatch[2] !== y)) return { status: 'missing', name };
-
+  // erste Blatt. Erkennung über Wochentage und Titel:
+  //  - Wochentag der ersten Datenzeile muss zum angefragten Monat passen.
+  //  - Ein abweichender Titel (z. B. kopiertes Blatt, Titel nicht angepasst)
+  //    wird toleriert – außer der Monat im Titel beginnt am selben Wochentag,
+  //    dann ist nicht unterscheidbar, ob es das Ersatzblatt von Google ist.
   const isDayRow = r => /^\d{1,2}$/.test((r[0] || '').trim()) && WD_SHEET.includes((r[1] || '').trim().toUpperCase());
   const first = rows.findIndex(isDayRow);
   if (first < 1) return { status: 'missing', name };
-  if (+rows[first][0] === 1 && rows[first][1].trim().toUpperCase() !== WD_SHEET[new Date(y, m, 1).getDay()]) {
-    return { status: 'missing', name };
+  const d0 = +rows[first][0];
+  if (rows[first][1].trim().toUpperCase() !== WD_SHEET[new Date(y, m, d0).getDay()]) return { status: 'missing', name };
+
+  const titleMatch = metaText.match(/Trainingsplan\s+(\S+)\s+(\d{4})/i);
+  if (titleMatch && (titleMatch[1] !== MONTHS[m] || +titleMatch[2] !== y)) {
+    const tm = MONTHS.indexOf(titleMatch[1]);
+    // tm < 0: Monatsname im Titel nicht lesbar (Tippfehler) -> Blatt akzeptieren
+    if (tm >= 0 && new Date(+titleMatch[2], tm, d0).getDay() === new Date(y, m, d0).getDay()) return { status: 'missing', name };
   }
 
   // Kopfzeile = letzte Zeile mit Inhalt vor der ersten Datenzeile
@@ -431,33 +440,52 @@ function renderNow() {
         <div class="bar"><i style="width:${pct}%"></i></div>`;
     }
   } else {
-    // Kein NEV laut Trainingsplan -> Belegungsplan der Stadt fragen
-    const city = cityBlocksOn(today).filter(b => b.start <= now && now < b.end);
+    // Kein NEV laut Trainingsplan -> Belegungsplan der Stadt fragen.
+    // Reihenfolge: 1. Fremdbelegung laut Stadt (NSK, öffentlich, Schule)
+    //              2. Übergang zwischen zwei Belegungen (<= MAX_GAP) = Eisaufbereitung
+    //              3. NEV-Block laut Stadt, der im Trainingsplan (noch) nicht belegt ist
+    //              4. Keine Belegung
+    const cityAll = cityBlocksOn(today);
+    const cityNow = cityAll.filter(b => b.kind !== 'nev' && b.start <= now && now < b.end);
+    // Tatsächliche Nutzung: NEV laut Trainingsplan + Fremdbelegung laut Stadt.
+    // NEV-Blöcke der Stadt zählen nicht – wer sie nutzt, steht im Trainingsplan.
+    const uses = [
+      ...groupSlots(list.filter(onIce)).map(s => ({ start: s.start, end: s.end, label: teamsHtml(s.teams) + (s.kind === 'home' ? ' (Heimspiel)' : '') })),
+      ...cityAll.filter(b => b.kind !== 'nev').map(b => ({ start: b.start, end: b.end, label: esc(cityTitle(b)) })),
+    ];
+    const prevUse = uses.filter(u => u.end <= now).sort((a, b) => b.end - a.end)[0];
+    const nextUse = uses.filter(u => u.start > now).sort((a, b) => a.start - b.start)[0];
+    const gapOk = prevUse && nextUse && nextUse.start - prevUse.end <= CONFIG.MAX_GAP_MIN;
+
     if (!state.city || state.city.status !== 'ok') {
       html += `<div class="now-free">Kein NEV-Training</div><div class="now-meta muted">Belegungsplan Stadt konnte nicht geladen werden.</div>`;
-    } else if (city.length) {
-      for (const b of city) {
+    } else if (cityNow.length) {
+      for (const b of cityNow) {
         const pct = Math.min(100, Math.max(0, (now - b.start) / (b.end - b.start) * 100));
-        const title = b.kind === 'nev' ? 'NEV-Vereinszeit' : esc(cityTitle(b));
-        // NEV-Block im Stadt-Plan: Trainingsplan entscheidet, wer ihn nutzt.
-        // Beginnt darin gleich eine NEV-Eiszeit (z. B. Wechsel 19:15 -> 19:20), das sagen –
-        // nur wenn im ganzen Block nichts eingetragen ist, gilt er als ungenutzt.
-        let hint = '';
-        if (b.kind === 'nev') {
-          const soon = groupSlots(list.filter(e => onIce(e) && e.start > now && e.start < b.end))[0];
-          hint = soon
-            ? `<span>ab ${fmtMin(soon.start)}: ${teamsHtml(soon.teams)}</span>`
-            : '<span>im Trainingsplan nicht belegt</span>';
-        }
-        html += `<div class="now-team city-${b.kind}">${title}</div>
-          <div class="now-meta"><span>${fmtMin(b.start)} – ${fmtMin(b.end)}</span>${hint}</div>
+        html += `<div class="now-team city-${b.kind}">${esc(cityTitle(b))}</div>
+          <div class="now-meta"><span>${fmtMin(b.start)} – ${fmtMin(b.end)}</span></div>
           <div class="bar city"><i style="width:${pct}%"></i></div>`;
       }
       html += `<div class="now-src">laut Belegungsplan Stadt (Wochenplan)</div>`;
+    } else if (gapOk) {
+      const pct = Math.min(100, Math.max(0, (now - prevUse.end) / (nextUse.start - prevUse.end) * 100));
+      html += `<div class="now-team zamboni">Eisaufbereitung</div>
+        <div class="now-meta"><span>${fmtMin(prevUse.end)} – ${fmtMin(nextUse.start)}</span><span>danach: ${nextUse.label}</span></div>
+        <div class="bar zamboni"><i style="width:${pct}%"></i></div>`;
     } else {
-      const next = cityBlocksOn(today).find(b => b.start > now);
-      html += `<div class="now-free">Keine Belegung</div>
-        <div class="now-meta muted">${next ? `ab ${fmtMin(next.start)}: ${esc(next.kind === 'nev' ? 'NEV' : cityTitle(next))}` : 'laut Belegungsplan Stadt heute nichts mehr'}</div>`;
+      const nevBlock = cityAll.find(b => b.kind === 'nev' && b.start <= now && now < b.end);
+      if (nevBlock) {
+        const pct = Math.min(100, Math.max(0, (now - nevBlock.start) / (nevBlock.end - nevBlock.start) * 100));
+        const soon = groupSlots(list.filter(e => onIce(e) && e.start > now && e.start < nevBlock.end))[0];
+        const hint = soon ? `ab ${fmtMin(soon.start)}: ${teamsHtml(soon.teams)}` : 'im Trainingsplan nicht belegt';
+        html += `<div class="now-team">NEV-Vereinszeit</div>
+          <div class="now-meta"><span>${fmtMin(nevBlock.start)} – ${fmtMin(nevBlock.end)}</span><span>${hint}</span></div>
+          <div class="bar city"><i style="width:${pct}%"></i></div>
+          <div class="now-src">laut Belegungsplan Stadt (Wochenplan)</div>`;
+      } else {
+        html += `<div class="now-free">Keine Belegung</div>
+          <div class="now-meta muted">${nextUse ? `ab ${fmtMin(nextUse.start)}: ${nextUse.label}` : 'heute nichts mehr'}</div>`;
+      }
     }
   }
   const sub = [];
