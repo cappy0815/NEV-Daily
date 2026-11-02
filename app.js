@@ -89,8 +89,10 @@ function classifyPlace(place) {
     return { type: 'office', label: rooms ? `Off-Ice ${rooms.split('').join('+')}` : 'Off-Ice' };
   }
   if (/\bK\d/i.test(place)) return { type: 'ice', label: place.replace(/\s+/g, ' ') };
-  if (place) return { type: 'ext', label: place };
-  return { type: 'ice', label: '' };   // ohne Ortsangabe -> Eis (Halle Neuss)
+  // Extern nur, wenn es nach einem anderen Ort aussieht ("Eissporthalle Moers", "@ Ratingen").
+  // Sonstiger Text ("Fotoshooting") ist ein Hinweis zu einer Eiszeit in Neuss.
+  if (/@|halle|eisbahn|arena|stadion/i.test(place)) return { type: 'ext', label: place.replace(/^@\s*/, '') };
+  return { type: 'ice', label: place };   // ohne Ortsangabe -> Eis (Halle Neuss)
 }
 
 function parseCell(raw) {
@@ -230,7 +232,8 @@ function cityKind(label) {
   if (/\bNEV\b/i.test(label)) return 'nev';
   if (/\bNSK\b/i.test(label)) return 'nsk';
   if (/öffent/i.test(label)) return 'public';
-  if (/schul|kinder/i.test(label)) return 'school';
+  if (/kinder/i.test(label)) return 'kita';
+  if (/schul/i.test(label)) return 'school';
   return 'other';
 }
 
@@ -493,7 +496,7 @@ function renderDay() {
   ul.innerHTML = slots.map(s => {
     const live = isToday && s.start != null && s.start <= now && now < s.end;
     const past = (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
-    const cls = ['slot', s.type, live ? 'live' : '', past && !live ? 'past' : ''].join(' ');
+    const cls = ['slot', s.type, `k-${s.kind}`, live ? 'live' : '', past && !live ? 'past' : ''].join(' ');
     if (s.kind === 'city') {
       return `<li class="${cls} city-${s.cityKind}">${timeHtml(s)}<div>
         <div class="who">${esc(s.label)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
