@@ -9,7 +9,9 @@ Handy-Webseite zum Trainingsplan des Neusser EV.
 ## Datenquelle
 
 Google Sheet „NEV Trainingsplan“, ein Tabellenblatt pro Monat mit dem Namen `<Monat> <Jahr>` (z. B. `November 2026`).
-Die Seite liest das Blatt direkt über den öffentlichen gviz-CSV-Endpunkt von Google. Voraussetzung: Das Sheet ist für „Jeder mit dem Link“ lesbar.
+Die Seite liest die Blätter über die öffentliche HTML-Ansicht von Google (`htmlview`). Die Liste der Blätter (Name → gid) kommt aus der Übersicht der Arbeitsmappe; dort stehen nur sichtbare Blätter – ein ausgeblendetes Monatsblatt gilt als „noch nicht online“. Voraussetzung: Das Sheet ist für „Jeder mit dem Link“ lesbar.
+
+**Durchgestrichen = fällt aus.** Die HTML-Ansicht enthält die Formatierung; durchgestrichene Zeilen einer Zelle werden zeilengenau als ausgefallen markiert (in der Liste durchgestrichen mit „fällt aus“) und zählen für „Jetzt auf dem Eis“, „Nächste NEV-Eiszeit“ und die Eisaufbereitung nicht.
 
 Wird ein Monatsblatt noch nicht gefunden, zeigt die Seite „Plan … noch nicht online“.
 

@@ -176,3 +176,9 @@ select {
 /* ---------- Footer ---------- */
 .foot { max-width: 640px; margin: 18px auto 0; padding: 0 16px; color: var(--muted); font-size: .78rem; text-align: center; }
 .foot .legend { margin-top: 4px; }
+
+/* ---------- Ausgefallen (im Sheet durchgestrichen) ---------- */
+.slot.cancelled { opacity: .6; background: #141414; }
+.slot.cancelled .t, .slot.cancelled .who, .wentry.cancelled .t { text-decoration: line-through; text-decoration-thickness: 2px; }
+.slot.cancelled .where { text-decoration: line-through; }
+.badge.cancel { background: transparent; border: 1px solid var(--red); color: #ff6b81; text-decoration: none; display: inline-block; }

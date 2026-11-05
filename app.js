@@ -29,7 +29,7 @@ const CONFIG = {
   // verbundene Zellen = Belegungsblock). Wird per htmlview geladen, weil nur
   // dort die verbundenen Zellen (colspan/rowspan) mitgeliefert werden.
   CITY_GID: '1732916025',
-  CACHE_KEY: 'nevDaily.cache.v2',
+  CACHE_KEY: 'nevDaily.cache.v3',
   TEAM_KEY: 'nevDaily.team',
 };
 
@@ -97,12 +97,15 @@ function classifyPlace(place) {
   return { type: 'ice', label: place };   // ohne Ortsangabe -> Eis (Halle Neuss)
 }
 
-function parseCell(raw) {
-  const lines = raw.split('\n').map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+/* cellLines: [{t: Text, x: durchgestrichen}] je Zeile der Zelle.
+   Durchgestrichene Zeile = Termin fällt aus (cancelled). */
+function parseCell(cellLines) {
+  const L = cellLines.map(l => ({ t: l.t.replace(/\s+/g, ' ').trim(), x: !!l.x })).filter(l => l.t);
+  const lines = L.map(l => l.t);
   const out = [];
   const isStart = l => RE_TRAIN.test(l) || RE_GAME.test(l);
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]; let m;
+    const l = lines[i]; const cancelled = L[i].x; let m;
     if ((m = l.match(RE_TRAIN))) {
       let place = m[6].trim();
       if (!place && lines[i + 1] && !isStart(lines[i + 1])) place = lines[++i];
@@ -110,7 +113,7 @@ function parseCell(raw) {
       out.push({
         kind: 'training', tag: (m[1] || '').toUpperCase(),
         start: +m[2] * 60 + +m[3], end: +m[4] * 60 + +m[5],
-        type: p.type, place: p.label,
+        type: p.type, place: p.label, cancelled,
       });
     } else if ((m = l.match(RE_GAME))) {
       let extra = m[4].trim(), at = '', opponent = '';
@@ -125,7 +128,7 @@ function parseCell(raw) {
       out.push({
         kind: home ? 'home' : 'away', start, end: start + CONFIG.GAME_DURATION_MIN,
         note: extra, opponent, at,
-        type: home && !at ? 'game' : 'ext',
+        type: home && !at ? 'game' : 'ext', cancelled,
       });
     } else if (out.length) {
       // unbekannte Zeile an den vorigen Eintrag hängen statt verwerfen
@@ -141,10 +144,69 @@ function parseCell(raw) {
 const inHall = e => e.type === 'ice' || e.type === 'office' || e.type === 'game';
 const onIce = e => e.type === 'ice' || e.type === 'game';
 
-/* ---------------- Laden eines Monatsblatts ---------------- */
-function sheetUrl(name, range) {
-  return `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&headers=0` +
-    `&sheet=${encodeURIComponent(name)}&range=${range}&_=${Date.now()}`;
+/* ---------------- HTML-Ansicht eines Blatts lesen ----------------
+   Die HTML-Ansicht (htmlview) liefert – anders als CSV – verbundene Zellen
+   (colspan/rowspan) und die Formatierung, u. a. Durchstreichen:
+   ganze Zelle über eine CSS-Klasse, einzelne Textteile über <span style=…>. */
+function parseHtmlGrid(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const table = doc.querySelector('table');
+  if (!table) return null;
+  const strikeCls = new Set();
+  for (const st of doc.querySelectorAll('style')) {
+    for (const m of st.textContent.matchAll(/\.([\w-]+)\s*\{([^}]*)\}/g)) if (/line-through/.test(m[2])) strikeCls.add(m[1]);
+  }
+  const strikeOf = (el, inherited) => {
+    const st = el.getAttribute('style') || '';
+    if (/line-through/.test(st)) return true;
+    if (/text-decoration[^;]*none/.test(st)) return false;
+    if ([...el.classList].some(c => strikeCls.has(c))) return true;
+    return inherited;
+  };
+  // Zelleninhalt -> Zeilen mit Durchstreich-Info
+  const cellLines = td => {
+    const lines = []; let cur = { t: '', s: 0, n: 0 };
+    const flush = () => { lines.push(cur); cur = { t: '', s: 0, n: 0 }; };
+    const walk = (node, x) => {
+      for (const ch of node.childNodes) {
+        if (ch.nodeType === 3) {
+          const parts = ch.nodeValue.replace(/ /g, ' ').split('\n');
+          parts.forEach((p, i) => {
+            if (i) flush();
+            cur.t += p;
+            const n = p.replace(/\s/g, '').length; cur.n += n; if (x) cur.s += n;
+          });
+        } else if (ch.nodeType === 1) {
+          if (ch.tagName === 'BR') flush(); else walk(ch, strikeOf(ch, x));
+        }
+      }
+    };
+    walk(td, strikeOf(td, false)); flush();
+    return lines.filter(l => l.t.trim()).map(l => ({ t: l.t, x: l.n > 0 && l.s === l.n }));
+  };
+  const grid = [];   // grid[r][c] = {text, lines, cs, rs, r0, c0}; Zeilenköpfe (<th>) ignoriert
+  let r = 0;
+  // Spaltenköpfe (A, B, …) stehen im <thead> und werden übersprungen. Zeilen im
+  // <tbody> NICHT überspringen, auch wenn sie keine <td> haben: Das sind Zeilen,
+  // die von einer verbundenen Zelle darüber (rowspan) komplett überdeckt werden.
+  for (const tr of (table.tBodies[0] || table).querySelectorAll('tr')) {
+    const tds = [...tr.children].filter(el => el.tagName === 'TD');
+    grid[r] = grid[r] || [];
+    let c = 0;
+    for (const td of tds) {
+      while (grid[r][c]) c++;
+      const cs = +td.getAttribute('colspan') || 1, rs = +td.getAttribute('rowspan') || 1;
+      const lines = cellLines(td);
+      const cell = { text: lines.map(l => l.t).join('\n').trim(), lines, cs, rs, r0: r, c0: c };
+      for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) {
+        grid[r + i] = grid[r + i] || [];
+        grid[r + i][c + j] = cell;
+      }
+      c += cs;
+    }
+    r++;
+  }
+  return grid;
 }
 
 async function fetchText(url) {
@@ -153,43 +215,45 @@ async function fetchText(url) {
   return r.text();
 }
 
+/* Blattliste (Name -> gid) aus der Übersicht der Arbeitsmappe.
+   Enthält nur sichtbare Blätter. Fehlt ein Monat darin, ist er "noch nicht online". */
+async function loadIndex(force = false) {
+  if (!force && state.sheetIndex) return state.sheetIndex;
+  const html = await fetchText(`https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/htmlview?_=${Date.now()}`);
+  const unesc = s => s.replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(.)/g, '$1');
+  const map = {};
+  for (const m of html.matchAll(/name:\s*"((?:[^"\\]|\\.)*)"[^}]*?gid:\s*"(\d+)"/g)) map[unesc(m[1]).trim()] = m[2];
+  if (!Object.keys(map).length) throw new Error('Blattliste des Sheets nicht lesbar');
+  state.sheetIndex = map;
+  return map;
+}
+
 async function loadMonth(y, m) {
   const name = `${MONTHS[m]} ${y}`;
-  // Spalte A oben (Titel + Stand) und der Datenblock getrennt abrufen:
-  // gviz verwirft sonst Textzeilen in der Zahlenspalte A.
-  const [metaTxt, dataTxt] = await Promise.all([
-    fetchText(sheetUrl(name, 'A1:A7')),
-    fetchText(sheetUrl(name, 'A1:Z50')),
-  ]);
-  const metaText = parseCSV(metaTxt).flat().join(' ');
-  const rows = parseCSV(dataTxt);
+  const gid = state.sheetIndex && state.sheetIndex[name];
+  if (!gid) return { status: 'missing', name };
+  const grid = parseHtmlGrid(await fetchText(
+    `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/htmlview/sheet?headers=false&gid=${gid}&_=${Date.now()}`));
+  if (!grid) return { status: 'missing', name };
+  // Nur die linke obere Zelle eines Verbunds trägt den Inhalt
+  const at = (i, j) => { const c = grid[i] && grid[i][j]; return c && c.r0 === i && c.c0 === j ? c : null; };
+  const txt = (i, j) => { const c = at(i, j); return c ? c.text : ''; };
 
-  // Wichtig: Existiert das Blatt nicht, liefert Google stillschweigend das
-  // erste Blatt. Erkennung über Wochentage und Titel:
-  //  - Wochentag der ersten Datenzeile muss zum angefragten Monat passen.
-  //  - Ein abweichender Titel (z. B. kopiertes Blatt, Titel nicht angepasst)
-  //    wird toleriert – außer der Monat im Titel beginnt am selben Wochentag,
-  //    dann ist nicht unterscheidbar, ob es das Ersatzblatt von Google ist.
-  const isDayRow = r => /^\d{1,2}$/.test((r[0] || '').trim()) && WD_SHEET.includes((r[1] || '').trim().toUpperCase());
-  const first = rows.findIndex(isDayRow);
+  const isDayRow = i => /^\d{1,2}$/.test(txt(i, 0)) && WD_SHEET.includes(txt(i, 1).toUpperCase());
+  let first = -1;
+  for (let i = 0; i < grid.length; i++) if (grid[i] && isDayRow(i)) { first = i; break; }
   if (first < 1) return { status: 'missing', name };
-  const d0 = +rows[first][0];
-  if (rows[first][1].trim().toUpperCase() !== WD_SHEET[new Date(y, m, d0).getDay()]) return { status: 'missing', name };
-
-  const titleMatch = metaText.match(/Trainingsplan\s+(\S+)\s+(\d{4})/i);
-  if (titleMatch && (titleMatch[1] !== MONTHS[m] || +titleMatch[2] !== y)) {
-    const tm = MONTHS.indexOf(titleMatch[1]);
-    // tm < 0: Monatsname im Titel nicht lesbar (Tippfehler) -> Blatt akzeptieren
-    if (tm >= 0 && new Date(+titleMatch[2], tm, d0).getDay() === new Date(y, m, d0).getDay()) return { status: 'missing', name };
-  }
+  const metaText = Array.from({ length: first }, (_, i) => txt(i, 0)).join(' ');
 
   // Kopfzeile = letzte Zeile mit Inhalt vor der ersten Datenzeile
   let hi = first - 1;
-  while (hi > 0 && rows[hi].slice(2).every(c => !c.trim())) hi--;
-  const header = rows[hi];
+  const rowLen = i => (grid[i] ? grid[i].length : 0);
+  const rowEmpty = i => { for (let j = 2; j < rowLen(i); j++) if (txt(i, j)) return false; return true; };
+  while (hi > 0 && rowEmpty(hi)) hi--;
   const teams = [];
-  for (let j = 2; j < header.length; j++) {
-    const h = (header[j] || '').trim();
+  for (let j = 2; j < rowLen(hi); j++) {
+    const h = txt(hi, j);
     if (!h) continue;
     const parts = h.split('\n').map(s => s.trim()).filter(Boolean);
     let short = parts.shift() || h;
@@ -198,14 +262,14 @@ async function loadMonth(y, m) {
   }
 
   const entries = [];
-  for (let i = first; i < rows.length && isDayRow(rows[i]); i++) {
-    const day = +rows[i][0];
+  for (let i = first; i < grid.length && grid[i] && isDayRow(i); i++) {
+    const day = +txt(i, 0);
     const date = new Date(y, m, day);
     if (date.getMonth() !== m) continue;
     for (const t of teams) {
-      const cell = (rows[i][t.col] || '').trim();
-      if (!cell) continue;
-      for (const e of parseCell(cell)) entries.push({ ...e, date: dateKey(date), team: t.id });
+      const cell = at(i, t.col);
+      if (!cell || !cell.text) continue;
+      for (const e of parseCell(cell.lines)) entries.push({ ...e, date: dateKey(date), team: t.id });
     }
   }
   const stand = (metaText.match(/Stand\s+([\d.]+)/i) || [])[1] || '';
@@ -214,6 +278,12 @@ async function loadMonth(y, m) {
 
 async function ensureMonths(dates, force = false) {
   const need = [...new Set(dates.map(d => monthKey(d.getFullYear(), d.getMonth())))];
+  try {
+    await loadIndex(force);
+  } catch (err) {
+    // ohne Blattliste kein Laden möglich – vorhandene (Cache-)Daten bleiben stehen
+    console.error(err); state.error = err.message; return;
+  }
   await Promise.all(need.map(async k => {
     const cur = state.months.get(k);
     if (!force && cur && cur.status !== 'error' && !cur.fromCache) return;
@@ -247,31 +317,8 @@ function cityKind(label) {
 }
 
 function parseCityHtml(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const table = doc.querySelector('table');
-  if (!table) throw new Error('Belegungsplan Stadt: keine Tabelle gefunden');
-
-  // Raster mit colspan/rowspan aufbauen; Zeilenköpfe (<th>) ignorieren
-  const grid = [];           // grid[r][c] = {text, cs, rs, r0, c0}
-  let r = 0;
-  for (const tr of table.querySelectorAll('tr')) {
-    const tds = [...tr.children].filter(el => el.tagName === 'TD');
-    if (!tds.length) continue;
-    grid[r] = grid[r] || [];
-    let c = 0;
-    for (const td of tds) {
-      while (grid[r][c]) c++;
-      const cs = +td.getAttribute('colspan') || 1, rs = +td.getAttribute('rowspan') || 1;
-      const text = (td.textContent || '').replace(/ /g, ' ').trim();
-      const cell = { text, cs, rs, r0: r, c0: c };
-      for (let i = 0; i < rs; i++) for (let j = 0; j < cs; j++) {
-        grid[r + i] = grid[r + i] || [];
-        grid[r + i][c + j] = cell;
-      }
-      c += cs;
-    }
-    r++;
-  }
+  const grid = parseHtmlGrid(html);
+  if (!grid) throw new Error('Belegungsplan Stadt: keine Tabelle gefunden');
   const textOf = cell => cell ? cell.text : '';
 
   const hourRow = grid.findIndex(row => row && /^zeit$/i.test(textOf(row[0])));
@@ -323,7 +370,6 @@ async function loadCity(force = false) {
   try {
     const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/htmlview/sheet?headers=false&gid=${CONFIG.CITY_GID}&_=${Date.now()}`;
     let html = await fetchText(url);
-    html = html.replace(/<br\s*\/?>/gi, '\n');
     state.city = parseCityHtml(html);
   } catch (err) {
     console.error(err);
@@ -383,7 +429,7 @@ const teamName = id => teamInfo(id).name;
 function groupSlots(list) {
   const map = new Map();
   for (const e of list) {
-    const key = e.kind === 'training' ? `t|${e.start}|${e.end}|${e.type}|${e.place}|${e.tag}` : `g|${e.team}|${e.start}|${e.kind}|${e.opponent}`;
+    const key = (e.cancelled ? 'x|' : '') + (e.kind === 'training' ? `t|${e.start}|${e.end}|${e.type}|${e.place}|${e.tag}` : `g|${e.team}|${e.start}|${e.kind}|${e.opponent}`);
     if (!map.has(key)) map.set(key, { ...e, teams: [] });
     map.get(key).teams.push(e.team);
   }
@@ -425,7 +471,8 @@ function renderNow() {
   if (mo.status !== 'ok') { body.innerHTML = `<div class="muted">Kein Plan für ${esc(mo.name)} gefunden.</div>`; return; }
 
   const now = nowMinutes();
-  const list = entriesOn(today).filter(e => e.start != null);
+  // ausgefallene (durchgestrichene) Termine zählen für Jetzt/Nächste/Eisaufbereitung nicht
+  const list = entriesOn(today).filter(e => e.start != null && !e.cancelled);
   const iceNow = groupSlots(list.filter(e => onIce(e) && e.start <= now && now < e.end));
   const offNow = groupSlots(list.filter(e => e.type === 'office' && e.start <= now && now < e.end));
   const nextIce = groupSlots(list.filter(e => onIce(e) && e.start > now))[0];
@@ -535,16 +582,16 @@ function renderDay() {
 
   const isToday = state.dayOffset === 0, now = nowMinutes();
   ul.innerHTML = slots.map(s => {
-    const live = isToday && s.start != null && s.start <= now && now < s.end;
+    const live = !s.cancelled && isToday && s.start != null && s.start <= now && now < s.end;
     const past = (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
-    const cls = ['slot', s.type, `k-${s.kind}`, live ? 'live' : '', past && !live ? 'past' : ''].join(' ');
+    const cls = ['slot', s.type, `k-${s.kind}`, live ? 'live' : '', past && !live ? 'past' : '', s.cancelled ? 'cancelled' : ''].join(' ');
     if (s.kind === 'city') {
       return `<li class="${cls} city-${s.cityKind}">${timeHtml(s)}<div>
         <div class="who">${esc(s.label)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
         <div class="where"><span class="badge city">Stadt-Plan</span></div></div></li>`;
     }
     return `<li class="${cls}">${timeHtml(s)}<div>
-      <div class="who">${teamsHtml(s.teams)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
+      <div class="who">${teamsHtml(s.teams)}${live ? ' <span class="badge live">jetzt</span>' : ''}${s.cancelled ? ' <span class="badge cancel">fällt aus</span>' : ''}</div>
       <div class="where">${placeBadges(s)}</div></div></li>`;
   }).join('');
 }
@@ -588,9 +635,9 @@ function renderWeek() {
     else {
       const list = groupSlots(entriesOn(d).filter(e => e.team === state.team));
       inner = list.length ? `<div>${list.map(s => {
-        const live = dateKey(d) === todayKey && s.start <= now && now < s.end;
+        const live = !s.cancelled && dateKey(d) === todayKey && s.start <= now && now < s.end;
         const time = s.start == null ? '' : (s.kind === 'home' || s.kind === 'away') ? fmtMin(s.start) : `${fmtMin(s.start)} – ${fmtMin(s.end)}`;
-        return `<div class="wentry"><span class="t">${time}</span>${live ? ' <span class="badge live">jetzt</span>' : ''}
+        return `<div class="wentry${s.cancelled ? ' cancelled' : ''}"><span class="t">${time}</span>${live ? ' <span class="badge live">jetzt</span>' : ''}${s.cancelled ? ' <span class="badge cancel">fällt aus</span>' : ''}
           <div class="where">${placeBadges(s)}</div></div>`;
       }).join('')}</div>` : '<div class="wnone">frei</div>';
     }
@@ -611,7 +658,7 @@ function isoWeek(d) {
 /* ---------------- Status / Uhr ---------------- */
 function renderStatus() {
   const n = new Date();
-  $('#clock').textContent = `${WD_LONG[n.getDay()]}, ${n.getDate()}. ${MONTHS[n.getMonth()]} · ${pad(n.getHours())}:${pad(n.getMinutes())} Uhr`;
+  $('#clock').textContent = `${WD_LONG[n.getDay()]}, ${n.getDate()}. ${MONTHS[n.getMonth()].length > 5 ? MONTHS[n.getMonth()].slice(0, 3) + '.' : MONTHS[n.getMonth()]} · ${pad(n.getHours())}:${pad(n.getMinutes())} Uhr`;
   const mo = monthFor(n);
   const parts = [];
   if (mo && mo.stand) parts.push(`Plan ${mo.name}: Stand ${mo.stand}`);
