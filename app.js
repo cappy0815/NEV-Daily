@@ -82,7 +82,8 @@ function parseCSV(text) {
 }
 
 /* ---------------- Zell-Parser ---------------- */
-const RE_TRAIN = /^(?:(LS|TW)\s+)?(\d{1,2})[.:](\d{2})\s*[-–]\s*(\d{1,2})[.:](\d{2})\s*(.*)$/i;
+// Tolerant gegen Tippfehler rund um den Bindestrich, z. B. "17.45 -.18.30" oder "17.45 - - 18.30"
+const RE_TRAIN = /^(?:(LS|TW)\s+)?(\d{1,2})[.:](\d{2})\s*[-–][-–.\s]*(\d{1,2})[.:](\d{2})\s*(.*)$/i;
 const RE_GAME = /^(H|A)\s+(\d{1,2})[.:](\d{2})\b\s*(.*)$/;
 
 function classifyPlace(place) {
