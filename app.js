@@ -587,7 +587,7 @@ function renderDay() {
   let slots = groupSlots(list);
   // Fremdbelegung (NSK, öffentlicher Lauf, Schule) aus dem Belegungsplan Stadt.
   // NEV-Blöcke daraus werden nicht gezeigt – maßgeblich ist der Trainingsplan.
-  if ($('#showCity').checked && mode !== 'office') {
+  if (!$('#hideCity').checked && mode !== 'office') {
     for (const b of cityBlocksOn(d)) {
       if (b.kind === 'nev') continue;
       slots.push({ kind: 'city', type: 'city', cityKind: b.kind, start: b.start, end: b.end, label: cityTitle(b), refs: b.refs, teams: [] });
@@ -765,8 +765,12 @@ document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click'
 }));
 $('#onlyHall').addEventListener('change', e => { safeSet('nevDaily.onlyHall', e.target.checked ? '1' : '0'); renderDay(); });
 // Standard: aus. Neuer Schlüssel, damit ein alter gespeicherter Wert nicht greift.
-$('#showCity').checked = safeGet('nevDaily.showCity.v2') === '1';
-$('#showCity').addEventListener('change', e => { safeSet('nevDaily.showCity.v2', e.target.checked ? '1' : '0'); renderDay(); });
+// Stadt-Plan ausblenden: Standard an (= ausgeblendet). Wer früher "einblenden" gewählt hatte, behält das.
+{
+  const v = safeGet('nevDaily.hideCity');
+  $('#hideCity').checked = v !== null ? v === '1' : safeGet('nevDaily.showCity.v2') !== '1';
+}
+$('#hideCity').addEventListener('change', e => { safeSet('nevDaily.hideCity', e.target.checked ? '1' : '0'); renderDay(); });
 $('#teamSelect').addEventListener('change', e => { state.team = e.target.value; safeSet(CONFIG.TEAM_KEY, state.team); renderWeek(); });
 $('#refreshBtn').addEventListener('click', () => refresh(true));
 document.addEventListener('visibilitychange', () => {
