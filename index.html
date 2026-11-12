@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="NEV Daily">
-  <link rel="stylesheet" href="style.css?v=2026-11-12a">
+  <link rel="stylesheet" href="style.css?v=2026-11-12b">
 </head>
 <body>
   <div class="sticky">
@@ -47,6 +47,12 @@
         <button class="nav-btn" id="dayNext" aria-label="Folgetag">›</button>
       </div>
 
+      <div class="seg" role="group" aria-label="Ansicht">
+        <button data-mode="all" class="active">Alle</button>
+        <button data-mode="ice">Eis</button>
+        <button data-mode="office">Off-Ice</button>
+      </div>
+
       <div class="filter">
         <label class="chk"><input type="checkbox" id="onlyHall"> nur Halle Neuss (Eis + Off-Ice)</label>
         <label class="chk"><input type="checkbox" id="showCity"> NSK, öffentlicher Lauf, Schule (Stadt-Plan)</label>
@@ -74,10 +80,10 @@
 
   <footer class="foot">
     <div id="status">–</div>
-    <div class="version">Version 2026-11-12a</div>
+    <div class="version">Version 2026-11-12b</div>
     <div class="legend">K = Kabine · Off-Ice A = Raum 1 · Off-Ice B = Raum 2 (Spiegel)</div>
   </footer>
 
-  <script src="app.js?v=2026-11-12a"></script>
+  <script src="app.js?v=2026-11-12b"></script>
 </body>
 </html>

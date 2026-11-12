@@ -45,6 +45,7 @@ const state = {
   weekOffset: 0,          // Wochen-Ansicht: 0 = aktuelle Woche
   team: safeGet(CONFIG.TEAM_KEY) || '',
   view: 'today',
+  dayMode: ['all', 'ice', 'office'].includes(safeGet('nevDaily.dayMode')) ? safeGet('nevDaily.dayMode') : 'all',
   lastLoad: null,
   loading: false,
   error: null,
@@ -557,43 +558,85 @@ function dayLabel(d, offset) {
   return base;
 }
 
+/* Tagesplan. Ansicht (state.dayMode):
+   'all'    – Eiszeiten als Hauptkarten, paralleles Off-Ice darin eingerückt
+              (Off-Ice ohne parallele NEV-Eiszeit steht als eigene Karte)
+   'ice'    – nur Eis (inkl. Spiele, extern, Stadt-Plan)
+   'office' – nur Off-Ice */
+function offIceLabel(s) {
+  const r = (s.place || '').replace(/^Off-Ice\s*/, '');
+  return r ? `Raum ${esc(r)}` : 'Off-Ice';
+}
+
 function renderDay() {
   const d = addDays(startOfDay(new Date()), state.dayOffset);
   $('#dayTitle').textContent = dayLabel(d, state.dayOffset);
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.dayMode));
   const ul = $('#dayList');
   const mo = monthFor(d);
   if (!mo) { ul.innerHTML = '<li class="empty">Lade …</li>'; return; }
   if (mo.status === 'missing') { ul.innerHTML = `<li class="empty">Der Plan für ${esc(mo.name)} ist noch nicht online.</li>`; return; }
   if (mo.status === 'error') { ul.innerHTML = `<li class="empty">Plan konnte nicht geladen werden.</li>`; return; }
 
+  const mode = state.dayMode;
   const onlyHall = $('#onlyHall').checked;
   let list = entriesOn(d);
   if (onlyHall) list = list.filter(inHall);
-  const slots = groupSlots(list);
+  if (mode === 'ice') list = list.filter(e => e.type !== 'office');
+  if (mode === 'office') list = list.filter(e => e.type === 'office');
+  let slots = groupSlots(list);
   // Fremdbelegung (NSK, öffentlicher Lauf, Schule) aus dem Belegungsplan Stadt.
   // NEV-Blöcke daraus werden nicht gezeigt – maßgeblich ist der Trainingsplan.
-  if ($('#showCity').checked) {
+  if ($('#showCity').checked && mode !== 'office') {
     for (const b of cityBlocksOn(d)) {
       if (b.kind === 'nev') continue;
       slots.push({ kind: 'city', type: 'city', cityKind: b.kind, start: b.start, end: b.end, label: cityTitle(b), refs: b.refs, teams: [] });
     }
     slots.sort((a, b) => (a.start ?? 9999) - (b.start ?? 9999) || (a.end ?? 0) - (b.end ?? 0));
   }
-  if (!slots.length) { ul.innerHTML = `<li class="empty">${onlyHall ? 'Keine Belegung der Halle.' : 'Keine Termine.'}</li>`; return; }
+
+  // Ansicht "Alle": Off-Ice der NEV-Eiszeit zuordnen, die zur selben Zeit läuft.
+  // Vorrang hat die Eiszeit, in die der Off-Ice-Beginn fällt, sonst die mit der größten Überschneidung.
+  if (mode === 'all') {
+    const hosts = slots.filter(s => (s.type === 'ice' || s.type === 'game') && s.kind !== 'city' && !s.cancelled && s.start != null);
+    hosts.forEach(h => { h.parallel = []; });
+    for (const o of slots.filter(s => s.type === 'office' && s.start != null)) {
+      const ov = h => Math.min(h.end, o.end) - Math.max(h.start, o.start);
+      const cand = hosts.filter(h => ov(h) > 0);
+      if (!cand.length) continue;
+      const inside = cand.filter(h => h.start <= o.start && o.start < h.end).sort((a, b) => b.start - a.start);
+      const host = inside[0] || cand.sort((a, b) => ov(b) - ov(a))[0];
+      host.parallel.push(o); o.nested = true;
+    }
+    slots = slots.filter(s => !s.nested);
+  }
+
+  if (!slots.length) {
+    const msg = mode === 'office' ? 'Kein Off-Ice.' : onlyHall ? 'Keine Belegung der Halle.' : 'Keine Termine.';
+    ul.innerHTML = `<li class="empty">${msg}</li>`; return;
+  }
 
   const isToday = state.dayOffset === 0, now = nowMinutes();
+  const isLive = s => !s.cancelled && isToday && s.start != null && s.start <= now && now < s.end;
+  const isPast = s => (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
   ul.innerHTML = slots.map(s => {
-    const live = !s.cancelled && isToday && s.start != null && s.start <= now && now < s.end;
-    const past = (state.dayOffset < 0) || (isToday && s.end != null && s.end <= now);
+    // Karte erst ausgrauen, wenn auch das parallele Off-Ice vorbei ist
+    const live = isLive(s), past = isPast(s) && (s.parallel || []).every(isPast);
     const cls = ['slot', s.type, `k-${s.kind}`, live ? 'live' : '', past && !live ? 'past' : '', s.cancelled ? 'cancelled' : ''].join(' ');
     if (s.kind === 'city') {
       return `<li class="${cls} city-${s.cityKind}">${timeHtml(s)}<div>
         <div class="who">${esc(s.label)}${live ? ' <span class="badge live">jetzt</span>' : ''}</div>
         <div class="where"><span class="badge city">Stadt-Plan</span></div></div></li>`;
     }
+    const par = (s.parallel || []).length ? `<div class="par"><div class="par-h">parallel Off-Ice</div>${s.parallel.map(o => {
+      const ol = isLive(o), op = isPast(o);
+      return `<div class="par-row${ol ? ' live' : ''}${op && !ol ? ' past' : ''}${o.cancelled ? ' cancelled' : ''}">
+        <span class="pt">${fmtMin(o.start)}–${fmtMin(o.end)}</span>
+        <span class="pw"><b>${teamsHtml(o.teams)}</b>${ol ? ' <span class="badge live">jetzt</span>' : ''}${o.cancelled ? ' <span class="badge cancel">fällt aus</span>' : ''}<span class="pr">${offIceLabel(o)}</span></span></div>`;
+    }).join('')}</div>` : '';
     return `<li class="${cls}">${timeHtml(s)}<div>
       <div class="who">${teamsHtml(s.teams)}${live ? ' <span class="badge live">jetzt</span>' : ''}${s.cancelled ? ' <span class="badge cancel">fällt aus</span>' : ''}</div>
-      <div class="where">${placeBadges(s)}</div></div></li>`;
+      <div class="where">${placeBadges(s)}</div>${par}</div></li>`;
   }).join('');
 }
 
@@ -717,6 +760,9 @@ $('#weekNext').addEventListener('click', () => { state.weekOffset++; ensureVisib
 $('#weekTitle').addEventListener('click', () => { state.weekOffset = 0; ensureVisible(); });
 // Standard: aus (alle Termine inkl. Auswärtsspiele). Auswahl wird gemerkt.
 $('#onlyHall').checked = safeGet('nevDaily.onlyHall') === '1';
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  state.dayMode = b.dataset.mode; safeSet('nevDaily.dayMode', state.dayMode); renderDay();
+}));
 $('#onlyHall').addEventListener('change', e => { safeSet('nevDaily.onlyHall', e.target.checked ? '1' : '0'); renderDay(); });
 // Standard: aus. Neuer Schlüssel, damit ein alter gespeicherter Wert nicht greift.
 $('#showCity').checked = safeGet('nevDaily.showCity.v2') === '1';
