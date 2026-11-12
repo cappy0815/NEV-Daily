@@ -69,7 +69,7 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
   display: flex; align-items: center; gap: 8px;
   font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gold);
 }
-.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: pulse 1.6s infinite; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: #5ac8fa; box-shadow: 0 0 6px #5ac8fa; animation: pulse 1.6s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 .now-body { margin-top: 8px; }
 .now-team { font-size: 1.6rem; font-weight: 900; line-height: 1.15; }
