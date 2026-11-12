@@ -758,18 +758,24 @@ $('#dayTitle').addEventListener('click', () => { state.dayOffset = 0; ensureVisi
 $('#weekPrev').addEventListener('click', () => { state.weekOffset--; ensureVisible(); });
 $('#weekNext').addEventListener('click', () => { state.weekOffset++; ensureVisible(); });
 $('#weekTitle').addEventListener('click', () => { state.weekOffset = 0; ensureVisible(); });
-// Standard: aus (alle Termine inkl. Auswärtsspiele). Auswahl wird gemerkt.
+/* Filter-Haken: beim ersten Besuch und beim ersten Aufruf in einem neuen Monat
+   beide NICHT gesetzt. Innerhalb des Monats wird die Auswahl gemerkt. */
+const FILTER_KEYS = ['nevDaily.hideCity', 'nevDaily.onlyHall'];
+function resetFiltersIfNewMonth() {
+  const n = new Date(), cur = `${n.getFullYear()}-${n.getMonth() + 1}`;
+  if (safeGet('nevDaily.filterMonth') === cur) return false;
+  FILTER_KEYS.forEach(k => safeSet(k, '0'));
+  safeSet('nevDaily.filterMonth', cur);
+  $('#hideCity').checked = false; $('#onlyHall').checked = false;
+  return true;
+}
+resetFiltersIfNewMonth();
+$('#hideCity').checked = safeGet('nevDaily.hideCity') === '1';
 $('#onlyHall').checked = safeGet('nevDaily.onlyHall') === '1';
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
   state.dayMode = b.dataset.mode; safeSet('nevDaily.dayMode', state.dayMode); renderDay();
 }));
 $('#onlyHall').addEventListener('change', e => { safeSet('nevDaily.onlyHall', e.target.checked ? '1' : '0'); renderDay(); });
-// Standard: aus. Neuer Schlüssel, damit ein alter gespeicherter Wert nicht greift.
-// Stadt-Plan ausblenden: Standard an (= ausgeblendet). Wer früher "einblenden" gewählt hatte, behält das.
-{
-  const v = safeGet('nevDaily.hideCity');
-  $('#hideCity').checked = v !== null ? v === '1' : safeGet('nevDaily.showCity.v2') !== '1';
-}
 $('#hideCity').addEventListener('change', e => { safeSet('nevDaily.hideCity', e.target.checked ? '1' : '0'); renderDay(); });
 $('#teamSelect').addEventListener('change', e => { state.team = e.target.value; safeSet(CONFIG.TEAM_KEY, state.team); renderWeek(); });
 $('#refreshBtn').addEventListener('click', () => refresh(true));
@@ -782,5 +788,5 @@ loadCache();
 if (state.team) { state.view = 'today'; }
 renderAll();
 refresh(true);
-setInterval(() => { renderStatus(); renderNow(); if (state.dayOffset === 0) renderDay(); }, CONFIG.TICK_MS);
+setInterval(() => { renderStatus(); renderNow(); if (resetFiltersIfNewMonth() || state.dayOffset === 0) renderDay(); }, CONFIG.TICK_MS);
 setInterval(() => refresh(true), CONFIG.REFRESH_MS);
