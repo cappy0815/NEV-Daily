@@ -176,6 +176,7 @@ select {
 /* ---------- Footer ---------- */
 .foot { max-width: 640px; margin: 18px auto 0; padding: 0 16px; color: var(--muted); font-size: .78rem; text-align: center; }
 .foot .legend { margin-top: 4px; }
+.foot .stat-note { margin-top: 6px; font-size: .7rem; opacity: .7; }
 
 /* ---------- Ausgefallen (im Sheet durchgestrichen) ---------- */
 .slot.cancelled { opacity: .6; background: #141414; }
